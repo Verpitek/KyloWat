@@ -1,6 +1,15 @@
 import { world } from "@minecraft/server";
 
 /**
+ * Represents a network of machines that stores and consumes energy.
+ * Within a network, a machine will only run if the previous machine
+ * has energy to transmit. Energy cost always applies but can be set to 0.
+ */
+export class Network {
+
+}
+
+/**
  * Represents a machine that stores and consumes energy.
  * Each machine is persisted using a dedicated scoreboard objective
  * with its own unique ID. Stats like `energy`, `energyCost`, and
