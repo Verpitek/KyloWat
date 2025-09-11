@@ -1,2 +1,2 @@
 # KyloWat
-an energy api for Minecraft Bedrock
+An energy api for Minecraft Bedrock

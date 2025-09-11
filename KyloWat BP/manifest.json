@@ -1,0 +1,67 @@
+{
+	"format_version": 2,
+	"metadata": {
+		"authors": [
+			"Verpitek"
+		],
+		"generated_with": {
+			"bridge": [
+				"2.7.50"
+			],
+			"dash": [
+				"0.11.7"
+			]
+		}
+	},
+	"header": {
+		"name": "KiloWat",
+		"description": "An energy api for Minecraft Bedrock",
+		"min_engine_version": [
+			1,
+			21,
+			90
+		],
+		"uuid": "6bbbb19b-0451-4bff-a4e4-8f51941c6dec",
+		"version": [
+			1,
+			0,
+			2
+		]
+	},
+	"modules": [
+		{
+			"type": "data",
+			"uuid": "f1ca7fb8-88aa-424d-a121-f5fe441cfc2d",
+			"version": [
+				1,
+				0,
+				0
+			]
+		},
+		{
+			"uuid": "ce887bb9-253d-4bf2-8a27-0bde9c38cdcf",
+			"version": "1.0.0",
+			"type": "script",
+			"language": "javascript",
+			"entry": "scripts/kylowatAPI.js"
+		}
+	],
+	"dependencies": [
+		{
+			"uuid": "6fa94eaf-7aea-4377-bf9d-c8048e8effbe",
+			"version": [
+				1,
+				0,
+				2
+			]
+		},
+		{
+			"module_name": "@minecraft/server",
+			"version": "2.0.0"
+		},
+		{
+			"module_name": "@minecraft/server-ui",
+			"version": "2.0.0"
+		}
+	]
+}
