@@ -16,6 +16,10 @@ export class Machine {
     /** @type {number} Maximum energy capacity */
     maxEnergy;
 
+    // Hard scoreboard limit
+    static MIN_VALUE = -2147483647;
+    static MAX_VALUE = 2147483647;
+
     /**
      * Create or load a machine.
      * @param {string} id - Unique machine ID ("machine_10_64_10")
@@ -94,8 +98,14 @@ export class Machine {
      * @param {number} value - Value to set
      */
     setStat(name, value) {
-        const obj = world.scoreboard.getObjective(this.id);
-        obj.setScore(name, value);
+        if (value > Machine.MAX_VALUE || value < Machine.MIN_VALUE) {
+            throw new Error(
+                `Scoreboard value for ${name} out of range: ${value} (must be greater than ${Machine.MIN_VALUE} and less than ${Machine.MAX_VALUE})`
+            )
+        } else {
+            const obj = world.scoreboard.getObjective(this.id);
+            obj.setScore(name, value);
+        }
     }
 
     /**
