@@ -1,179 +1,126 @@
-import { world, system } from "@minecraft/server";
-
-const UPDATE_TIME = 10
-
-function generateId(block) {
-    return `some id`; // TEMP ID SYSTEM: NEED TO CHANGES
-}
+import { world, system } from "@minecraft/server"
 
 world.afterEvents.playerPlaceBlock.subscribe(ev => {
-    const { block } = ev;
-    const id = generateId(block);
+    if (!MachineRegistry.isRegistered(ev.block.typeId)) return;
+    const machine = new Machine(ev.block);
 
-    if (Machine.exists(id)) {
-        const machine = Machine.getMachine(id);
-        if (!machine) return;
-
-        let net = Network.findNetwork(machine);
-        if (!net) {
-            net = Network.getNetwork(`net_${id}`);
-            net.addMachine(machine);
-        }
-
-        Network.connectAdjacent(machine, block.location);
+    let net = Network.findNetwork(machine);
+    if (!net) {
+        net = Network.getOrCreate(`net_${machine.id}`);
+        net.addMachine(machine);
     }
+
+    Network.connectAdjacent(machine);
 });
 
 world.afterEvents.playerBreakBlock.subscribe(ev => {
-    const { block } = ev;
-    const id = generateId(block);
-
-    if (!Machine.exists(id)) return;
-
-    const machine = Machine.getMachine(id);
-    if (!machine) return;
-
+    if (!MachineRegistry.isRegistered(ev.block.typeId)) return;
+    const machine = new Machine(ev.block);
     const net = Network.findNetwork(machine);
-    if (net) {
-        net.removeMachine(machine);
-    }
-
+    if (net) net.removeMachine(machine);
     machine.delete();
 });
 
 system.runInterval(() => {
-    Network.runAll()
-}, UPDATE_TIME)
+    Network.runAll();
+}, UPDATE_TIME);
+
+export class MachineRegistry {
+    /** @type {Map<string, { energyCost: number, maxEnergy: number }>} */
+    static registry = new Map();
+
+    /**
+     * Register a block as a machine
+     * @param {string} blockId - Block typeId (e.g. "minecraft:iron_block")
+     * @param {number} energyCost - Energy consumed on run
+     * @param {number} maxEnergy - Maximum storable energy
+     */
+    static register(blockId, energyCost, maxEnergy) {
+        this.registry.set(blockId, { energyCost, maxEnergy });
+    }
+
+    static isRegistered(blockId) {
+        return this.registry.has(blockId);
+    }
+
+    static getEnergyCost(blockId) {
+        return this.registry.get(blockId)?.energyCost ?? 0;
+    }
+
+    static getMaxEnergy(blockId) {
+        return this.registry.get(blockId)?.maxEnergy ?? 0;
+    }
+}
 
 /**
- * Represents a network of machines that stores and consumes energy.
- * Within a network, a machine will only run if the previous machine
- * has energy to transmit. Energy cost always applies but can be set to 0.
+ * Represents a network of connected machines.
+ * Networks are formed dynamically by adjacency (neighboring machines).
+ * Each network manages a group of machines and can run them together.
  */
 export class Network {
-    static registry = new Set();
-    static cache = new Map();
+    /** @type {Map<string, Network>} All existing networks, keyed by their ID */
+    static registry = new Map();
 
-    /** @type {string} */
-    id;
-    /** @type {Set<Machine>} */
-    machines = new Set();
-    /** @type {Map<string, string|null>} */
-    links = new Map();
-
+    /**
+     * Create a new network
+     * @param {string} id - Unique network identifier
+     */
     constructor(id) {
         this.id = id;
-        this.ensureObjective();
-        this.loadLinks();
-        Network.cache.set(id, this);
-        Network.registry.add(this);
+        /** @type {Set<Machine>} Machines in this network */
+        this.machines = new Set();
+        Network.registry.set(id, this);
     }
 
-    ensureObjective() {
-        try {
-            world.scoreboard.addObjective(this.id, `Network ${this.id}`);
-        } catch {}
-    }
-
+    /**
+     * Add a machine to this network
+     * @param {Machine} machine
+     */
     addMachine(machine) {
         this.machines.add(machine);
-        if (!this.links.has(machine.id)) this.links.set(machine.id, null);
-        this.saveLinks();
     }
 
+    /**
+     * Remove a machine from this network
+     * If no machines remain, the network is destroyed
+     * @param {Machine} machine
+     */
     removeMachine(machine) {
         this.machines.delete(machine);
-        this.links.delete(machine.id);
-
-        for (const [a, b] of this.links.entries()) {
-            if (b === machine.id) this.links.set(a, null);
-        }
-
-        if (this.machines.size === 0) {
-            Network.registry.delete(this);
-            Network.cache.delete(this.id);
-            try {
-                world.scoreboard.removeObjective(this.id);
-            } catch {}
-        } else {
-            this.saveLinks();
-        }
+        if (this.machines.size === 0) Network.registry.delete(this.id);
     }
 
-    link(a, b) {
-        if (!this.machines.has(a) || !this.machines.has(b)) return;
-        this.links.set(a.id, b.id);
-        this.saveLinks();
+    /**
+     * Get an existing network by ID or create a new one
+     * @param {string} id - Network ID
+     * @returns {Network}
+     */
+    static getOrCreate(id) {
+        return this.registry.get(id) ?? new Network(id);
     }
 
-    unlink(a) {
-        if (this.links.has(a.id)) {
-            this.links.set(a.id, null);
-            this.saveLinks();
+    /**
+     * Find the network that contains a specific machine
+     * @param {Machine} machine
+     * @returns {Network|null}
+     */
+    static findNetwork(machine) {
+        for (const net of this.registry.values()) {
+            if (net.machines.has(machine)) return net;
         }
+        return null;
     }
 
-    traverse(start) {
-        const order = [];
-        let current = start.id;
-        const visited = new Set();
+    /**
+     * Attempt to connect a machine to any adjacent registered machines
+     * - If the neighbor is in a network, merge or add accordingly
+     * - If both are in different networks, merge them into one
+     * @param {Machine} machine
+     */
+    static connectAdjacent(machine) {
+        const { x, y, z } = machine.block.location;
 
-        while (current && !visited.has(current)) {
-            visited.add(current);
-            if (!this.links.has(current)) break;
-
-            const machine = Machine.getMachine(current);
-            if (!machine) break;
-            order.push(machine);
-
-            current = this.links.get(current) ?? null;
-        }
-        return order;
-    }
-
-    transfer(start) {
-        const chain = this.traverse(start);
-        let i = 0;
-
-        const step = () => {
-            if (i >= chain.length) return;
-            const machine = chain[i++];
-            if (machine.run()) {
-                system.runTimeout(step, 1);
-            }
-        };
-
-        step();
-    }
-
-    saveLinks() {
-        const obj = world.scoreboard.getObjective(this.id);
-        for (const participant of obj.getParticipants()) {
-            const name = participant.displayName;
-            if (name.includes("->")) {
-                obj.removeParticipant(participant);
-            }
-        }
-
-        for (const [a, b] of this.links.entries()) {
-            if (b) obj.setScore(`${a}->${b}`, 1);
-        }
-    }
-
-    loadLinks() {
-        this.links.clear();
-        const obj = world.scoreboard.getObjective(this.id);
-
-        for (const participant of obj.getParticipants()) {
-            const name = participant.displayName;
-            if (name.includes("->")) {
-                const [a, b] = name.split("->");
-                this.links.set(a, b);
-            }
-        }
-    }
-
-    static connectAdjacent(machine, pos) {
+        // All 6 axis-aligned neighbors
         const offsets = [
             [1, 0, 0], [-1, 0, 0],
             [0, 1, 0], [0, -1, 0],
@@ -181,138 +128,117 @@ export class Network {
         ];
 
         for (const [dx, dy, dz] of offsets) {
-            const neighborPos = { x: pos.x + dx, y: pos.y + dy, z: pos.z + dz };
-            const neighborId = `some_id`;
+            const block = machine.block.dimension.getBlock({ x: x + dx, y: y + dy, z: z + dz });
+            if (!block) continue;
 
-            if (Machine.exists(neighborId)) {
-                const neighbor = Machine.getMachine(neighborId);
-                const network = Network.findNetwork(neighbor);
-                const myNetwork = Network.findNetwork(machine);
+            if (MachineRegistry.isRegistered(block.typeId)) {
+                const neighbor = new Machine(block);
+                const neighborNet = this.findNetwork(neighbor);
+                const myNet = this.findNetwork(machine);
 
-                if (network && myNetwork && network !== myNetwork) {
-                    for (const [id, link] of myNetwork.links) {
-                        network.links.set(id, link);
-                    }
-                    for (const m of myNetwork.machines) {
-                        network.machines.add(m);
-                    }
-
-                    Network.registry.delete(myNetwork);
-                    Network.cache.delete(myNetwork.id);
-                } else if (network) {
-                    network.addMachine(machine);
+                if (neighborNet && myNet && neighborNet !== myNet) {
+                    for (const m of myNet.machines) neighborNet.addMachine(m);
+                    Network.registry.delete(myNet.id);
+                } else if (neighborNet) {
+                    neighborNet.addMachine(machine);
                 }
             }
         }
     }
 
+    /**
+     * Run all machines in this network
+     * Machines consume energy when run()
+     */
+    run() {
+        for (const machine of this.machines) {
+            machine.run();
+        }
+    }
+
+    /**
+     * Run all networks
+     */
     static runAll() {
-        for (const net of Network.registry) {
-            const firstId = net.links.keys().next().value;
-            if (!firstId) continue;
-            const start = Machine.getMachine(firstId);
-            if (start) net.transfer(start);
-        }
-    }
-
-    static getNetwork(id) {
-        if (Network.cache.has(id)) return Network.cache.get(id);
-        return new Network(id);
-    }
-
-    static findNetwork(machine) {
-        for (const net of Network.registry) {
-            if (net.machines.has(machine)) return net;
-        }
-        return null;
+        for (const net of this.registry.values()) net.run();
     }
 }
 
 /**
- * Represents a machine that stores and consumes energy.
- * Each machine is persisted using a dedicated scoreboard objective
- * with its own unique ID. Stats like `energy`, `energyCost`, and
- * `maxEnergy` are stored as scoreboard participants.
+ * Represents a single machine tied to a block.
+ * A machine has energy, energyCost, and maxEnergy values
+ * which are persisted using the scoreboard.
  */
 export class Machine {
-    /** @type {string} Unique machine ID */
-    id;
-    /** @type {number} Amount of energy consumed when run */
-    energyCost;
-    /** @type {number} Current stored energy */
-    currentEnergy;
-    /** @type {number} Maximum energy capacity */
-    maxEnergy;
-
-    // Hard scoreboard limit
-    static MIN_VALUE = -2147483647;
-    static MAX_VALUE = 2147483647;
-
     /**
-     * Create or load a machine.
-     * @param {string} id - Unique machine ID ("machine_10_64_10")
-     * @param {number} [energyCost=1] - Default energy cost if machine is new
-     * @param {number} [maxEnergy=1] - Default max energy if machine is new
+     * Create or load a machine from a block
+     * @param {Block} block - Minecraft block object
      */
-    constructor(id, energyCost = 1, maxEnergy = 1) {
-        this.id = id;
+    constructor(block) {
+        this.block = block;
+        this.id = makeMachineId(block);
+
+        const defaults = MachineRegistry.getDefaults(block.typeId);
+        if (!defaults) throw new Error(`${block.typeId} not registered`);
+
         this.ensureObjective();
-        this.setStatIfEmpty("energyCost", energyCost);
-        this.setStatIfEmpty("maxEnergy", maxEnergy);
-        this.energyCost = this.loadStat("energyCost");
-        this.maxEnergy = this.loadStat("maxEnergy");
-        this.currentEnergy = this.loadStat("energy");
+        this.energyCost    = this.getOrInit("energyCost", defaults.energyCost);
+        this.maxEnergy     = this.getOrInit("maxEnergy", defaults.maxEnergy);
+        this.currentEnergy = this.getOrInit("energy", 0);
     }
 
     /**
-     * Attempt to run the machine by consuming energy
-     * @returns {boolean} True if successful, false if not enough energy
+     * Run the machine once
+     * - Consumes energy if enough is available
+     * @returns {boolean} true if machine ran, false otherwise
      */
     run() {
         if (this.currentEnergy >= this.energyCost) {
             this.currentEnergy -= this.energyCost;
-            this.saveEnergy();
+            this.save("energy", this.currentEnergy);
             return true;
         }
         return false;
     }
 
     /**
-     * Save the current energy value to the scoreboard
-     */
-    saveEnergy() {
-        this.setStat("energy", this.currentEnergy);
-    }
-
-    /**
-     * Add energy to the machine
-     * Will not exceed the maxEnergy limit
-     * @param {number} amount - Amount of energy to add
+     * Add energy to this machine (clamped to maxEnergy)
+     * @param {number} amount
      */
     addEnergy(amount) {
         this.currentEnergy = Math.min(this.currentEnergy + amount, this.maxEnergy);
-        this.saveEnergy();
+        this.save("energy", this.currentEnergy);
     }
 
     /**
-     * Remove energy from the machine
-     * Will not drop below 0
-     * @param {number} amount - Amount of energy to remove
+     * Save a stat to the scoreboard
+     * @param {string} name
+     * @param {number} value
      */
-    removeEnergy(amount) {
-        this.currentEnergy = Math.max(this.currentEnergy - amount, 0);
-        this.saveEnergy();
+    save(name, value) {
+        const obj = world.scoreboard.getObjective(this.id);
+        obj.setScore(name, value);
     }
 
     /**
-     * Permanently delete this machine by removing its scoreboard objective
+     * Load a stat from the scoreboard
+     * If it doesn’t exist, set it to a default value
+     * @param {string} name - Stat key
+     * @param {number} def - Default value
+     * @returns {number}
      */
-    delete() {
-        world.scoreboard.removeObjective(this.id);
+    getOrInit(name, def) {
+        const obj = world.scoreboard.getObjective(this.id);
+        try {
+            return obj.getScore(name);
+        } catch {
+            obj.setScore(name, def);
+            return def;
+        }
     }
 
     /**
-     * Ensure the scoreboard objective for this machine exists
+     * Ensure the scoreboard objective exists for this machine
      */
     ensureObjective() {
         try {
@@ -321,79 +247,9 @@ export class Machine {
     }
 
     /**
-     * Set a stat value for this machine
-     * @param {string} name - Stat name ("energy", "maxEnergy")
-     * @param {number} value - Value to set
+     * Permanently delete this machine (remove scoreboard data)
      */
-    setStat(name, value) {
-        if (value > Machine.MAX_VALUE || value < Machine.MIN_VALUE) {
-            throw new Error(
-                `Scoreboard value for ${name} out of range: ${value} (must be greater than ${Machine.MIN_VALUE} and less than ${Machine.MAX_VALUE})`
-            )
-        } else {
-            const obj = world.scoreboard.getObjective(this.id);
-            obj.setScore(name, value);
-        }
-    }
-
-    /**
-     * Load a stat value for this machine
-     * @param {string} name - Stat name
-     * @returns {number} The stored value, or 0 if not set
-     */
-    loadStat(name) {
-        const obj = world.scoreboard.getObjective(this.id);
-        try {
-            return obj.getScore(name);
-        } catch {
-            return 0;
-        }
-    }
-
-    /**
-     * Set a stat only if it doesn't already exist
-     * @param {string} name - Stat name
-     * @param {number} value - Value to set if empty
-     */
-    setStatIfEmpty(name, value) {
-        const obj = world.scoreboard.getObjective(this.id);
-        try {
-            obj.getScore(name);
-        } catch {
-            obj.setScore(name, value);
-        }
-    }
-
-    /**
-     * Get all existing machines by scanning scoreboard objectives
-     * @returns {Machine[]} An array of Machine instances
-     */
-    static getAllMachines() {
-        return world.scoreboard.getObjectives()
-            .map(obj => {
-                const id = obj.displayName.replace("Machine ", "") || obj.id;
-                return new Machine(id);
-            })
-            .filter(machine => machine.loadStat("maxEnergy") > 0);
-    }
-
-    /**
-     * Retrieve an existing machine by ID
-     * @param {string} id - Machine ID
-     * @returns {Machine|null} The machine instance or null if not found
-     */
-    static getMachine(id) {
-        const obj = world.scoreboard.getObjective(id);
-        if (!obj) return null;
-        return new Machine(id);
-    }
-
-    /**
-     * Check if a machine exists by ID
-     * @param {string} id - Machine ID
-     * @returns {boolean} True if it exists, false otherwise
-     */
-    static exists(id) {
-        return world.scoreboard.getObjectives().some(obj => obj.id === id);
+    delete() {
+        world.scoreboard.removeObjective(this.id);
     }
 }
