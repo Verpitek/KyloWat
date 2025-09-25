@@ -18,7 +18,7 @@ system.runInterval(() => {
     Network.reconstructAll();
 
     for (const [id, network] of Network.registry) {
-        network.traverseLinkedListJob(machine => {
+        network.traverseNetwork(machine => {
             if (!machine) return;
 
             machine.run();
