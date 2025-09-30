@@ -15,7 +15,7 @@
 	},
 	"header": {
 		"name": "KiloWat",
-		"description": "An energy api for Minecraft Bedrock",
+		"description": "An Energy API for Minecraft Bedrock Edition",
 		"min_engine_version": [
 			1,
 			21,
