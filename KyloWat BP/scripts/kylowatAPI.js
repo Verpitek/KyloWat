@@ -44,7 +44,7 @@ export const EnergySystem = (() => {
                 const machine = machines[i];
                 if (!machine) continue;
 
-                machine.run();
+                machine.transferToLinkedMachines()
                 if (i % 25 === 0) yield;
             }
 
@@ -304,7 +304,7 @@ export class Machine {
 
     /**
      * Run this machine for one tick.
-     * Subtracts energyCost acting as if an action was taken and transfers energy to connecting machines
+     * Subtracts energyCost acting as if an action was taken,
      * @returns {boolean} True if machine had enough energy to run, false otherwise
      */
     run() {
@@ -314,13 +314,18 @@ export class Machine {
             this.removeEnergy(this.energyCost);
         }
 
+        return true;
+    }
+
+    /**
+     * Handles transferring energy to all linked machines
+     */
+    transferToLinkedMachines() {
         const linkedMachines = this.getLinkedMachines();
         for (const target of linkedMachines) {
             if (!target) continue;
             this.transferEnergy(target);
         }
-
-        return true;
     }
 
     /**
