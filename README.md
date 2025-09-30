@@ -49,3 +49,8 @@ world.beforeEvents.playerInteractWithBlock.subscribe(ev => {
     }
 })
 ```
+
+## Important: Known Issues
+Minecraft Bedrock Edition's Scripting API does not allow us to save data to a specific block. Thus, for this API to work, we recommend making it so blocks that act as machines are unable to be pushed by pistons or able to be blown up. This is because we use the location as an ID. This will be changed pending mojang giving us the ability to edit NBT or add dynamic properties to blocks.
+
+This issue should not affect entities and it is recommended you use entity-based machinary. 
