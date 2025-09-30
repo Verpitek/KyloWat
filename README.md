@@ -20,7 +20,7 @@ world.afterEvents.worldLoad.subscribe(ev => {
 })
 ```
 
-Logic is determined by how the machine is registered and the "Energy System" only handles the logic of transferring energy between linked machines. Machines do not need to be linked two-way. To give a machine logic, use the "run()" function. This will return true/false and check energy reserves compared to cost. Effectively, allowing to determine functionality. 
+Logic is determined by how the machine is registered and the "Energy System" only handles the logic of transferring energy between linked machines. Machines do not need to be linked two-way. To give a machine logic, use the "run()" function. This will return true/false and check energy reserves compared to cost. Effectively, allowing you to determine functionality. 
 
 EXAMPLE
 ```
