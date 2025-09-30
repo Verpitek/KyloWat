@@ -2,6 +2,8 @@
 An Energy API for Minecraft Bedrock Edition
 
 ## How To Use
+Copy the "kylowatAPI.js" into your own behavior pack. Import as needed.
+
 First, you must decide how you want machines to be created in the first place. You have two options:
 
 1. You define it yourself using the Machine class to create a new machine object
