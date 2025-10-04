@@ -99,8 +99,11 @@ export const EnergySystem = (() => {
 })();
 
 /**
- * Represents a registered block ID
- * that has default Machine components
+ * Represents a registered ID
+ * that has default Machine components.
+ * Block and Entity IDs are handled automatically.
+ * Custom IDs will need to be managed yourself
+ * and deleted to avoid memory overload.
  */
 export class MachineRegistry {
     static objectiveId = "machine_registry";
@@ -116,65 +119,66 @@ export class MachineRegistry {
     }
 
     /**
-     * Registers an entity or block ID as a machine
+     * Registers an ID as a machine - automatically handling entities or blocks
+     * Custom IDs will not be handled automatically but can be used similarly
      * This will cause all entities or blocks that share the ID to register as a machine on block place or entity spawn
-     * @param {String} typeId - ID to register
+     * @param {String} id - ID to register
      * @param {number} [energyCost=0] - Energy cost per tick
      * @param {number} [maxEnergy=0] - Max energy capacity
      * @param {number} [currentEnergy=0] - Initial energy value
      * @param {number} [transferRate=50] - Default transfer rate
      */
-    static register(typeId, energyCost = 0, maxEnergy = 0, startEnergy = 0, transferRate = 50) {
+    static register(id, energyCost = 0, maxEnergy = 0, startEnergy = 0, transferRate = 50) {
         this.ensureObjective();
         const obj = world.scoreboard.getObjective(this.objectiveId);
 
-        obj.setScore(`${typeId}:energyCost`, energyCost);
-        obj.setScore(`${typeId}:maxEnergy`, maxEnergy);
-        obj.setScore(`${typeId}:startEnergy`, startEnergy);
-        obj.setScore(`${typeId}:transferRate`, transferRate);
+        obj.setScore(`${id}:energyCost`, energyCost);
+        obj.setScore(`${id}:maxEnergy`, maxEnergy);
+        obj.setScore(`${id}:startEnergy`, startEnergy);
+        obj.setScore(`${id}:transferRate`, transferRate);
 
-        this.cache.set(typeId, { energyCost, maxEnergy, startEnergy, transferRate });
+        this.cache.set(id, { energyCost, maxEnergy, startEnergy, transferRate });
     }
 
     /**
      * Gets the default values for a registered ID
-     * @param {String} typeId - ID to search
+     * @param {String} id - ID to search
      * @returns - An array of default values [energyCost, maxEnergy, startEnergy, transferRate]
      */
-    static get(typeId) {
-        if (this.cache.has(typeId)) {
-            const cached = this.cache.get(typeId);
+    static get(id) {
+        if (this.cache.has(id)) {
+            const cached = this.cache.get(id);
             return [cached.energyCost, cached.maxEnergy, cached.startEnergy, cached.transferRate];
         }
 
         this.ensureObjective();
         const obj = world.scoreboard.getObjective(this.objectiveId);
 
-        const energyCost = obj.getScore(`${typeId}:energyCost`) ?? 0;
-        const maxEnergy = obj.getScore(`${typeId}:maxEnergy`) ?? 0;
-        const startEnergy = obj.getScore(`${typeId}:startEnergy`) ?? 0;
-        const transferRate = obj.getScore(`${typeId}:transferRate`) ?? 50;
+        const energyCost = obj.getScore(`${id}:energyCost`) ?? 0;
+        const maxEnergy = obj.getScore(`${id}:maxEnergy`) ?? 0;
+        const startEnergy = obj.getScore(`${id}:startEnergy`) ?? 0;
+        const transferRate = obj.getScore(`${id}:transferRate`) ?? 50;
 
-        if (!this.has(typeId)) this.register(typeId, energyCost, maxEnergy, startEnergy, transferRate);
+        if (!this.has(id)) this.register(id, energyCost, maxEnergy, startEnergy, transferRate);
 
-        this.cache.set(typeId, { energyCost, maxEnergy, startEnergy, transferRate });
+        this.cache.set(id, { energyCost, maxEnergy, startEnergy, transferRate });
 
         return [energyCost, maxEnergy, startEnergy, transferRate];
     }
 
     /**
-     * Checks if the typeId is registered
-     * @param {String} typeId  - ID to search
+     * Checks if the ID is registered
+     * @param {String} id  - ID to search
      * @returns True/False
      */
-    static has(typeId) {
-        if (this.cache.has(typeId)) return true;
+    static has(id) {
+        if (this.cache.has(id)) return true;
 
         this.ensureObjective();
         const obj = world.scoreboard.getObjective(this.objectiveId);
 
         try {
-            return obj.getScore(`${typeId}:energyCost`) != null;
+            return obj.getScore(`${id}:energyCost`) != null;
         } catch {
             return false;
         }
