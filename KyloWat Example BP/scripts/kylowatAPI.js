@@ -3,29 +3,30 @@ import { world, system } from "@minecraft/server"
 world.afterEvents.entitySpawn.subscribe(ev => {
     if (!MachineRegistry.has(ev.entity.typeId)) return;
     let cleanLoc = {x: Math.floor(ev.entity.location.x), y: Math.floor(ev.entity.location.y), z: Math.floor(ev.entity.location.z)}
-    new Machine(ev.entity.typeId, cleanLoc)
+    new Machine(ev.entity.typeId, cleanLoc, ev.entity.dimension.id)
     ev.entity.setDynamicProperty("spawn_location", cleanLoc)
 })
 
 world.afterEvents.entityDie.subscribe(ev => {
     if (!MachineRegistry.has(ev.deadEntity.typeId)) return;
     let loc = ev.deadEntity.getDynamicProperty("spawn_location")
-    let id = Machine.findIdByLocation(loc)
-    Machine.deleteId(id)
+    let id = Machine.findIdByLocation(loc, ev.deadEntity.dimension.id)
+    if(id){
+        Machine.deleteId(id)
+    }
 })
 
 world.afterEvents.playerPlaceBlock.subscribe(ev => {
     if (!MachineRegistry.has(ev.block.typeId)) return;
-    let machine = new Machine(ev.block.typeId, ev.block.location)
-    let id = Machine.findIdByLocation({x: 34, y: 65, z: -304})
-    let otherMachine = Machine.reconstructFromId(id)
-    otherMachine.linkMachine(machine)
+    new Machine(ev.block.typeId, {x: ev.block.x, y: ev.block.y, z: ev.block.z}, ev.block.dimension.id)
 });
 
 world.afterEvents.playerBreakBlock.subscribe(ev => {
     if (!MachineRegistry.has(ev.brokenBlockPermutation.type.id)) return;
-    let id = Machine.findIdByLocation(ev.block.location);
-    Machine.deleteId(id)
+    let id = Machine.findIdByLocation({x: ev.block.x, y: ev.block.y, z: ev.block.z}, ev.dimension.id);
+    if(id){
+        Machine.deleteId(id)
+    }
 });
 
 /**
@@ -198,12 +199,13 @@ export class Machine {
      * Uses x:y:z as key for blocks, or a dynamic property for entities
      * @param {string} typeId - Machine type identifier
      * @param {Object} location - Machine location (x, y, z)
+     * @param {String|Number} dim - Machine dimension
      * @param {number} [energyCost=0] - Energy cost per tick
      * @param {number} [maxEnergy=0] - Max energy capacity
      * @param {number} [currentEnergy=0] - Initial energy value
      * @param {number} [transferRate=50] - Default transfer rate
      */
-    constructor(typeId, location, energyCost = 0, maxEnergy = 0, currentEnergy = 0, transferRate = 50) {
+    constructor(typeId, location, dim, energyCost = 0, maxEnergy = 0, currentEnergy = 0, transferRate = 50) {
         if (!typeId || !location) throw new Error("Machine requires typeId and location");
 
         const key = `${location.x}:${location.y}:${location.z}`;
@@ -225,10 +227,15 @@ export class Machine {
             this.currentEnergy = regStartEnergy !== undefined ? regStartEnergy : currentEnergy;
             this.transferRate = regTransferRate !== undefined ? regTransferRate : transferRate;
 
+            if (typeof dim == "string"){
+                dim = dimStringToNum(dim)
+            }
+
             const obj = world.scoreboard.addObjective(this.id, this.id);
             obj.setScore("x", location.x);
             obj.setScore("y", location.y);
             obj.setScore("z", location.z);
+            obj.setScore("dimension", dim)
             obj.setScore("energyCost", this.energyCost);
             obj.setScore("maxEnergy", this.maxEnergy);
             obj.setScore("energy", this.currentEnergy);
@@ -237,6 +244,7 @@ export class Machine {
         } else {
             const machine = Machine.reconstructFromId(id);
             this.id = machine.id;
+            this.dim = machine.dim
             this.energyCost = machine.energyCost;
             this.maxEnergy = machine.maxEnergy;
             this.currentEnergy = machine.currentEnergy;
@@ -249,15 +257,20 @@ export class Machine {
     /**
      * Find a machine id by its location
      * @param {{x:number, y:number, z:number}} loc - Location to check
+     * @param {String|Number} dim - Dim to check
      * @returns {string|null} Machine id or null
      */
-    static findIdByLocation(loc) {
+    static findIdByLocation(loc, dim) {
         try {
+            if (typeof dim == "string"){
+                dim = dimStringToNum(dim)
+            }
             for (const obj of world.scoreboard.getObjectives()) {
                 const sx = obj.getScore("x");
                 const sy = obj.getScore("y");
                 const sz = obj.getScore("z");
-                if (sx === loc.x && sy === loc.y && sz === loc.z) {
+                const sdim = obj.getScore("dimension")
+                if (sx === loc.x && sy === loc.y && sz === loc.z && sdim === dim) {
                     return obj.displayName;
                 }
             }
@@ -277,6 +290,7 @@ export class Machine {
         const x = obj.getScore("x");
         const y = obj.getScore("y");
         const z = obj.getScore("z");
+        const dim = obj.getScore("dimension")
         const key = `${x}:${y}:${z}`;
 
         const energyCost = obj.getScore("energyCost");
@@ -286,6 +300,7 @@ export class Machine {
 
         const machine = Object.create(Machine.prototype);
         machine.id = id;
+        machine.dim = dim
         machine.energyCost = energyCost;
         machine.maxEnergy = maxEnergy;
         machine.currentEnergy = currentEnergy;
@@ -472,6 +487,18 @@ export class Machine {
         const key = `${this.location.x}:${this.location.y}:${this.location.z}`;
         Machine.cache.delete(key);
         freeUUID(this.id);
+    }
+}
+
+function dimStringToNum(dim){
+    if (dim.toLowerCase() == "minecraft:overworld"){
+        return 0;
+    } else if (dim.toLowerCase() == "minecraft:nether"){
+        return 1;
+    } else if (dim.toLowerCase() == "minecraft:the_end"){
+        return 2;
+    } else{
+        throw `Invalid dimension ID: ${dim}`
     }
 }
 
